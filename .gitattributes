@@ -1,0 +1,6 @@
+* text=auto eol=lf
+*.combined binary
+*.gz binary
+assets/* binary
+release/* binary
+*.sha256 -binary diff merge text eol=lf

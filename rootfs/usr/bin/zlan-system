@@ -1,0 +1,50 @@
+#!/bin/sh
+
+CPUFREQ="/sys/devices/system/cpu/cpu0/cpufreq"
+
+temperature() {
+    for zone in /sys/class/thermal/thermal_zone*; do
+        [ -r "$zone/temp" ] || continue
+        value="$(cat "$zone/temp")"
+        [ -n "$value" ] || continue
+        echo "$((value / 1000)) C"
+        return 0
+    done
+    echo "sensor indisponível"
+}
+
+cpu_status() {
+    echo "CPU: $(sed -n 's/^cpu model[[:space:]]*:[[:space:]]*//p' /proc/cpuinfo | sed -n '1p')"
+    echo "Clock detectado no boot: $(dmesg 2>/dev/null | sed -n 's/.*CPU Clock: //p' | sed -n '1p')"
+    echo "Temperatura: $(temperature)"
+    if [ -d "$CPUFREQ" ]; then
+        echo "Governor: $(cat "$CPUFREQ/scaling_governor" 2>/dev/null)"
+        echo "Governors: $(cat "$CPUFREQ/scaling_available_governors" 2>/dev/null)"
+        echo "Frequência: $(cat "$CPUFREQ/scaling_cur_freq" 2>/dev/null) kHz"
+    else
+        echo "cpufreq: não suportado pelo kernel deste equipamento"
+    fi
+}
+
+set_governor() {
+    governor="$1"
+    if [ ! -w "$CPUFREQ/scaling_governor" ]; then
+        echo "ERRO: cpufreq não é suportado por este kernel" >&2
+        return 1
+    fi
+    if ! grep -qw "$governor" "$CPUFREQ/scaling_available_governors"; then
+        echo "ERRO: governor indisponível: $governor" >&2
+        return 1
+    fi
+    echo "$governor" > "$CPUFREQ/scaling_governor"
+}
+
+case "${1:-status}" in
+    status) cpu_status ;;
+    temp) temperature ;;
+    governor)
+        [ -n "${2:-}" ] || { echo "Uso: $0 governor NOME" >&2; exit 1; }
+        set_governor "$2"
+        ;;
+    *) echo "Uso: $0 [status|temp|governor NOME]" >&2; exit 1 ;;
+esac

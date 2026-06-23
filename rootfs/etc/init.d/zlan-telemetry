@@ -1,0 +1,69 @@
+#!/bin/sh /etc/rc.common
+
+# START and STOP are consumed by OpenWrt rc.common.
+# shellcheck disable=SC2034
+START=96
+STOP=11
+
+DAEMON="/usr/bin/zlan-telemetryd"
+PIDFILE="/var/run/zlan-telemetry.pid"
+LOG="/tmp/zlan-telemetry.log"
+
+is_running() {
+    [ -f "$PIDFILE" ] || return 1
+    pid="$(sed -n '1p' "$PIDFILE" 2>/dev/null)"
+    [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
+}
+
+is_configured() {
+    [ "$(uci -q get zlan_mqtt.main.enabled 2>/dev/null)" = "1" ] && return 0
+    sections="$(uci -q show zlan_modbus 2>/dev/null | sed -n "s/^zlan_modbus\.\([^.=]*\)=device$/\1/p")"
+    for section in $sections; do
+        [ "$(uci -q get "zlan_modbus.$section.enabled" 2>/dev/null)" = "1" ] && return 0
+    done
+    return 1
+}
+
+start() {
+    if is_running; then
+        echo "zlan-telemetry já está ativo"
+        return 0
+    fi
+
+    if ! is_configured; then
+        echo "zlan-telemetry sem Modbus/MQTT habilitado"
+        return 0
+    fi
+
+    mkdir -p /var/run /tmp/zlan-telemetry
+    "$DAEMON" >> "$LOG" 2>&1 &
+    echo "$!" > "$PIDFILE"
+    echo "zlan-telemetry iniciado"
+}
+
+stop() {
+    if is_running; then
+        pid="$(sed -n '1p' "$PIDFILE")"
+        kill "$pid" 2>/dev/null || true
+        sleep 2
+        kill -9 "$pid" 2>/dev/null || true
+    fi
+    killall zlan-telemetryd 2>/dev/null || true
+    rm -f "$PIDFILE"
+    echo "zlan-telemetry parado"
+}
+
+restart() {
+    stop
+    sleep 1
+    start
+}
+
+status() {
+    if is_running; then
+        echo "daemon: running"
+    else
+        echo "daemon: stopped"
+    fi
+    [ ! -r /tmp/zlan-telemetry/status.json ] || cat /tmp/zlan-telemetry/status.json
+}

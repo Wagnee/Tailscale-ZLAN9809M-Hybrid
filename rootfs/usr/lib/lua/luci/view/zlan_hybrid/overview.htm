@@ -1,0 +1,40 @@
+<%+header%>
+<%
+local sys = require "luci.sys"
+local ts = sys.exec("/etc/init.d/zlan-tailscale status 2>&1")
+local telemetry = sys.exec("/etc/init.d/zlan-telemetry status 2>&1")
+local memory = sys.exec("free 2>&1")
+local disk = sys.exec("df -h /overlay /tmp 2>&1")
+local cpu = sys.exec("/usr/bin/zlan-system status 2>&1")
+local tslog = sys.exec("tail -n 80 /tmp/zlan-tailscale.log 2>&1")
+local telog = sys.exec("tail -n 80 /tmp/zlan-telemetry.log 2>&1")
+%>
+
+<h2>ZLAN9809M Hybrid</h2>
+<p>Serviços persistentes no overlay; somente <code>tailscale.combined</code> é carregado dinamicamente em <code>/tmp</code>.</p>
+
+<div class="cbi-page-actions">
+    <form method="post" action="<%=url('admin/services/zlan_hybrid/action')%>" style="display:inline">
+        <input type="hidden" name="token" value="<%=token%>" />
+        <input type="hidden" name="service" value="tailscale" />
+        <button class="cbi-button cbi-button-apply" name="action" value="start">Iniciar Tailscale</button>
+        <button class="cbi-button cbi-button-reset" name="action" value="restart">Reiniciar Tailscale</button>
+        <button class="cbi-button" name="action" value="stop">Parar Tailscale</button>
+    </form>
+    <form method="post" action="<%=url('admin/services/zlan_hybrid/action')%>" style="display:inline">
+        <input type="hidden" name="token" value="<%=token%>" />
+        <input type="hidden" name="service" value="telemetry" />
+        <button class="cbi-button" name="action" value="restart">Reiniciar telemetria</button>
+        <button class="cbi-button" name="action" value="stop">Parar telemetria</button>
+    </form>
+</div>
+
+<h3>Tailscale</h3><pre><%=pcdata(ts)%></pre>
+<h3>Modbus/MQTT</h3><pre><%=pcdata(telemetry)%></pre>
+<h3>CPU</h3><pre><%=pcdata(cpu)%></pre>
+<h3>Memória</h3><pre><%=pcdata(memory)%></pre>
+<h3>Armazenamento</h3><pre><%=pcdata(disk)%></pre>
+<h3>Log Tailscale</h3><pre style="max-height:300px;overflow:auto"><%=pcdata(tslog)%></pre>
+<h3>Log telemetria</h3><pre style="max-height:300px;overflow:auto"><%=pcdata(telog)%></pre>
+
+<%+footer%>

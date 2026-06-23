@@ -1,0 +1,229 @@
+#!/bin/sh
+
+CONFIG="zlan_tailscale.main"
+BIN="/tmp/tailscale.combined"
+CLI="/tmp/tailscale"
+DAEMON="/tmp/tailscaled"
+RUNTIME_DIR="/tmp/tailscale-runtime"
+SOCKET="$RUNTIME_DIR/tailscaled.sock"
+LOG="/tmp/zlan-tailscale.log"
+TAILSCALED_PID=""
+
+uci_get() {
+    value="$(uci -q get "$CONFIG.$1" 2>/dev/null)"
+    if [ -n "$value" ]; then
+        printf '%s' "$value"
+    else
+        printf '%s' "$2"
+    fi
+}
+
+trim_log() {
+    log_size="$(wc -c < "$LOG" 2>/dev/null)"
+    if [ -n "$log_size" ] && [ "$log_size" -gt 65536 ]; then
+        tail -n 160 "$LOG" > "$LOG.tmp" 2>/dev/null && mv "$LOG.tmp" "$LOG"
+    fi
+}
+
+log() {
+    message="[zlan-tailscale] $*"
+    echo "$message"
+    logger -t zlan-tailscale "$*" 2>/dev/null || true
+    printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null)" "$message" >> "$LOG"
+    trim_log
+}
+
+available_memory_kb() {
+    sed -n 's/^MemAvailable:[[:space:]]*\([0-9][0-9]*\).*/\1/p' /proc/meminfo 2>/dev/null
+}
+
+verify_hash() {
+    file="$1"
+    expected="$2"
+
+    [ -n "$expected" ] || return 0
+
+    if ! command -v sha256sum >/dev/null 2>&1; then
+        log "sha256sum nao esta disponivel; recusando binario sem validacao"
+        return 1
+    fi
+
+    actual="$(sha256sum "$file" 2>/dev/null | sed 's/[[:space:]].*//')"
+    [ "$actual" = "$expected" ]
+}
+
+validate_binary() {
+    file="$1"
+    size="$(wc -c < "$file" 2>/dev/null)"
+
+    [ -n "$size" ] && [ "$size" -gt 7000000 ] || return 1
+    verify_hash "$file" "$TS_BINARY_SHA256" || return 1
+
+    chmod 0755 "$file" || return 1
+    rm -f "$CLI" "$DAEMON"
+    ln -s "$file" "$CLI" || return 1
+    ln -s "$file" "$DAEMON" || return 1
+    return 0
+}
+
+download_binary() {
+    partial="$BIN.part"
+    rm -f "$partial"
+
+    log "baixando tailscale.combined para /tmp"
+    if ! wget --no-check-certificate -O "$partial" "$TS_BINARY_URL"; then
+        rm -f "$partial"
+        log "download indisponível; nova tentativa em ${TS_RETRY_DELAY}s"
+        return 1
+    fi
+
+    if ! validate_binary "$partial"; then
+        rm -f "$partial" "$CLI" "$DAEMON"
+        log "binário baixado falhou na validação"
+        return 1
+    fi
+
+    mv "$partial" "$BIN"
+    rm -f "$CLI" "$DAEMON"
+    ln -s "$BIN" "$CLI"
+    ln -s "$BIN" "$DAEMON"
+    log "tailscale.combined validado e pronto em /tmp"
+}
+
+ensure_binary() {
+    if [ -f "$BIN" ] && validate_binary "$BIN"; then
+        return 0
+    fi
+
+    rm -f "$BIN" "$CLI" "$DAEMON"
+    download_binary
+}
+
+load_config() {
+    TS_ENABLED="$(uci_get enabled 1)"
+    TS_BINARY_URL="$(uci_get binary_url '')"
+    TS_BINARY_SHA256="$(uci_get binary_sha256 '')"
+    TS_HOSTNAME="$(uci_get hostname zlan9809m)"
+    TS_ROUTES="$(uci_get routes '')"
+    TS_AUTH_KEY="$(uci_get auth_key '')"
+    TS_ACCEPT_DNS="$(uci_get accept_dns 0)"
+    TS_ACCEPT_ROUTES="$(uci_get accept_routes 0)"
+    TS_NETFILTER_MODE="$(uci_get netfilter_mode nodivert)"
+    TS_PORT="$(uci_get port 41641)"
+    TS_RETRY_DELAY="$(uci_get retry_delay 60)"
+    TS_START_TIMEOUT="$(uci_get start_timeout 180)"
+    TS_MINIMUM_AVAILABLE_KB="$(uci_get minimum_available_kb 30000)"
+}
+
+start_tailscaled() {
+    mkdir -p /etc/tailscale "$RUNTIME_DIR"
+    chmod 0700 /etc/tailscale
+    rm -f "$SOCKET"
+
+    memory_kb="$(available_memory_kb)"
+    if [ -n "$memory_kb" ] && [ "$memory_kb" -lt "$TS_MINIMUM_AVAILABLE_KB" ]; then
+        log "memória disponível insuficiente: ${memory_kb} KB"
+        return 1
+    fi
+
+    echo 1 > /proc/sys/net/ipv4/ip_forward 2>/dev/null || true
+
+    "$DAEMON" \
+        --state=/etc/tailscale/tailscaled.state \
+        --socket="$SOCKET" \
+        --port="$TS_PORT" >> "$LOG" 2>&1 &
+    TAILSCALED_PID="$!"
+
+    elapsed=0
+    while [ "$elapsed" -lt "$TS_START_TIMEOUT" ]; do
+        if ! kill -0 "$TAILSCALED_PID" 2>/dev/null; then
+            log "tailscaled encerrou antes de criar o socket"
+            return 1
+        fi
+        [ -S "$SOCKET" ] && return 0
+        sleep 1
+        elapsed=$((elapsed + 1))
+    done
+
+    log "timeout aguardando o socket do tailscaled"
+    return 1
+}
+
+tailscale_up() {
+    set -- "$CLI" --socket="$SOCKET" up \
+        --hostname="$TS_HOSTNAME" \
+        --accept-dns="$TS_ACCEPT_DNS" \
+        --accept-routes="$TS_ACCEPT_ROUTES"
+
+    [ -z "$TS_ROUTES" ] || set -- "$@" --advertise-routes="$TS_ROUTES"
+    [ -z "$TS_AUTH_KEY" ] || set -- "$@" --auth-key="$TS_AUTH_KEY"
+
+    if [ -n "$TS_NETFILTER_MODE" ] && "$CLI" up --help 2>&1 | grep -q -e '--netfilter-mode'; then
+        set -- "$@" --netfilter-mode="$TS_NETFILTER_MODE"
+    fi
+
+    "$@" >> "$LOG" 2>&1
+}
+
+stop_runtime() {
+    if [ -x "$CLI" ] && [ -S "$SOCKET" ]; then
+        "$CLI" --socket="$SOCKET" down >/dev/null 2>&1 || true
+    fi
+
+    if [ -n "$TAILSCALED_PID" ]; then
+        kill "$TAILSCALED_PID" 2>/dev/null || true
+    fi
+    killall tailscaled 2>/dev/null || true
+    killall tailscale.combined 2>/dev/null || true
+    rm -f "$SOCKET"
+}
+
+trap 'stop_runtime; exit 0' INT TERM
+
+while true; do
+    load_config
+
+    if [ "$TS_ENABLED" != "1" ]; then
+        log "serviço desabilitado na configuração"
+        sleep 60
+        continue
+    fi
+
+    if [ -z "$TS_BINARY_URL" ]; then
+        log "binary_url não configurada"
+        sleep "$TS_RETRY_DELAY"
+        continue
+    fi
+
+    if ! ensure_binary; then
+        sleep "$TS_RETRY_DELAY"
+        continue
+    fi
+
+    if ! start_tailscaled; then
+        stop_runtime
+        sleep "$TS_RETRY_DELAY"
+        continue
+    fi
+
+    if tailscale_up; then
+        log "Tailscale configurado; estado persistente em /etc/tailscale"
+    else
+        log "tailscale up falhou; o daemon continuará ativo para nova tentativa"
+    fi
+
+    retry_up=0
+    while kill -0 "$TAILSCALED_PID" 2>/dev/null; do
+        sleep 60
+        retry_up=$((retry_up + 1))
+        if [ "$retry_up" -ge 5 ]; then
+            retry_up=0
+            trim_log
+            "$CLI" --socket="$SOCKET" status >/dev/null 2>&1 || tailscale_up || true
+        fi
+    done
+
+    log "tailscaled encerrou; reiniciando em ${TS_RETRY_DELAY}s"
+    stop_runtime
+    sleep "$TS_RETRY_DELAY"
+done

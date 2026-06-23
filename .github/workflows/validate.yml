@@ -1,0 +1,35 @@
+name: validate
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22.x"
+          cache: true
+      - name: Test
+        run: go test ./...
+      - name: Cross-build telemetry daemon
+        env:
+          GOOS: linux
+          GOARCH: mipsle
+          GOMIPS: softfloat
+          CGO_ENABLED: "0"
+        run: go build -trimpath -ldflags="-s -w -buildid=" -o /tmp/zlan-telemetryd ./cmd/zlan-telemetryd
+      - name: Check shell syntax and architecture rules
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck file
+          shellcheck -s sh install.sh rootfs/etc/init.d/zlan-* rootfs/usr/bin/zlan-*
+          file /tmp/zlan-telemetryd | grep -E 'ELF 32-bit.*MIPS.*statically linked'
+          ! grep -R -E '^[[:space:]]*(opkg|apk|apt)([[:space:]]|$)' install.sh rootfs
+          test ! -e rootfs/tmp/tailscale.combined

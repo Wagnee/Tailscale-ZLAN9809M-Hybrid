@@ -1,0 +1,12 @@
+#!/bin/sh
+
+echo "Limpando somente arquivos temporários do ZLAN Hybrid..."
+rm -f /tmp/tailscale.combined.part
+rm -f /tmp/zlan-hybrid-install.* /tmp/zlan-hybrid-update.* 2>/dev/null || true
+
+for log_file in /tmp/zlan-tailscale.log /tmp/zlan-telemetry.log; do
+    [ -f "$log_file" ] || continue
+    tail -n 200 "$log_file" > "$log_file.tmp" 2>/dev/null && mv "$log_file.tmp" "$log_file"
+done
+
+echo "Nenhum pacote ou configuração persistente foi removido."

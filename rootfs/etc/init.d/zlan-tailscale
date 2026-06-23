@@ -1,0 +1,66 @@
+#!/bin/sh /etc/rc.common
+
+# START and STOP are consumed by OpenWrt rc.common.
+# shellcheck disable=SC2034
+START=99
+STOP=10
+
+LOADER="/usr/bin/zlan-tailscale-loader"
+PIDFILE="/var/run/zlan-tailscale.pid"
+SOCKET="/tmp/tailscale-runtime/tailscaled.sock"
+CLI="/tmp/tailscale"
+
+is_running() {
+    [ -f "$PIDFILE" ] || return 1
+    pid="$(sed -n '1p' "$PIDFILE" 2>/dev/null)"
+    [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
+}
+
+start() {
+    if is_running; then
+        echo "zlan-tailscale já está ativo"
+        return 0
+    fi
+
+    mkdir -p /var/run
+    "$LOADER" >/dev/null 2>&1 &
+    echo "$!" > "$PIDFILE"
+    echo "zlan-tailscale iniciado"
+}
+
+stop() {
+    if is_running; then
+        pid="$(sed -n '1p' "$PIDFILE")"
+        kill "$pid" 2>/dev/null || true
+        sleep 2
+        kill -9 "$pid" 2>/dev/null || true
+    fi
+
+    if [ -x "$CLI" ] && [ -S "$SOCKET" ]; then
+        "$CLI" --socket="$SOCKET" down >/dev/null 2>&1 || true
+    fi
+    killall tailscaled 2>/dev/null || true
+    killall tailscale.combined 2>/dev/null || true
+    rm -f "$PIDFILE" "$SOCKET"
+    echo "zlan-tailscale parado"
+}
+
+restart() {
+    stop
+    sleep 2
+    start
+}
+
+status() {
+    if is_running; then
+        echo "loader: running"
+    else
+        echo "loader: stopped"
+    fi
+
+    if [ -x "$CLI" ] && [ -S "$SOCKET" ]; then
+        "$CLI" --socket="$SOCKET" status 2>&1
+    else
+        echo "tailscale: aguardando internet/binário"
+    fi
+}

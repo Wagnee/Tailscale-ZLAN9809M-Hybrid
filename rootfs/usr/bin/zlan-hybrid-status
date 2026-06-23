@@ -1,0 +1,25 @@
+#!/bin/sh
+
+VERSION="$(cat /usr/share/zlan-hybrid/VERSION 2>/dev/null)"
+echo "===== ZLAN9809M HYBRID ${VERSION:-desconhecida} ====="
+echo "Sistema: $(uname -a)"
+echo ""
+echo "Memória:"
+free 2>&1 || true
+echo ""
+echo "Armazenamento:"
+df -h / /overlay /tmp 2>&1 || true
+echo ""
+echo "TUN:"
+ls -l /dev/net/tun 2>&1 || true
+echo ""
+echo "Tailscale:"
+/etc/init.d/zlan-tailscale status 2>&1 || true
+echo ""
+echo "Telemetria Modbus/MQTT:"
+/etc/init.d/zlan-telemetry status 2>&1 || true
+echo ""
+echo "Processos:"
+# BusyBox deste firmware nao fornece pgrep.
+# shellcheck disable=SC2009
+ps 2>&1 | grep -E '[t]ailscale|[z]lan-telemetry' || true

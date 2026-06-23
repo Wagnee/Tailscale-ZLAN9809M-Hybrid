@@ -1,0 +1,38 @@
+#!/bin/sh
+
+set -u
+
+PURGE=0
+[ "${1:-}" = "--purge" ] && PURGE=1
+
+echo "Parando servicos ZLAN Hybrid..."
+/etc/init.d/zlan-tailscale stop 2>/dev/null || true
+/etc/init.d/zlan-telemetry stop 2>/dev/null || true
+/etc/init.d/zlan-tailscale disable 2>/dev/null || true
+/etc/init.d/zlan-telemetry disable 2>/dev/null || true
+
+rm -f /etc/init.d/zlan-tailscale /etc/init.d/zlan-telemetry
+rm -f /usr/bin/zlan-tailscale-loader /usr/bin/zlan-telemetryd
+rm -f /usr/bin/zlan-hybrid-status /usr/bin/zlan-hybrid-cleanup
+rm -f /usr/bin/zlan-hybrid-update /usr/bin/zlan-system
+rm -f /usr/lib/lua/luci/controller/zlan_hybrid.lua
+rm -f /usr/lib/lua/luci/model/cbi/zlan_tailscale.lua
+rm -f /usr/lib/lua/luci/model/cbi/zlan_modbus.lua
+rm -f /usr/lib/lua/luci/model/cbi/zlan_mqtt.lua
+rm -f /usr/lib/lua/luci/view/zlan_hybrid/overview.htm
+rm -f /etc/sysctl.d/99-zlan-hybrid.conf
+rm -rf /usr/share/zlan-hybrid
+
+rm -f /tmp/tailscale /tmp/tailscaled /tmp/tailscale.combined /tmp/tailscale.combined.part
+rm -rf /tmp/tailscale-runtime /tmp/zlan-telemetry
+rm -f /tmp/luci-indexcache
+
+if [ "$PURGE" = "1" ]; then
+    rm -f /etc/config/zlan_tailscale /etc/config/zlan_modbus /etc/config/zlan_mqtt
+    rm -rf /etc/tailscale
+    echo "Configuracoes e identidade Tailscale removidas (--purge)."
+else
+    echo "Configuracoes e /etc/tailscale foram preservados."
+fi
+
+echo "ZLAN Hybrid removido."
