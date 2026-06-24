@@ -28,8 +28,9 @@ jobs:
       - name: Check shell syntax and architecture rules
         run: |
           sudo apt-get update
-          sudo apt-get install -y shellcheck file
+          sudo apt-get install -y shellcheck file lua5.1
           shellcheck -s sh install.sh rootfs/etc/init.d/zlan-* rootfs/usr/bin/zlan-*
+          find rootfs/usr/lib/lua -name '*.lua' -print0 | xargs -0 -n1 luac5.1 -p
           file /tmp/zlan-telemetryd | grep -E 'ELF 32-bit.*MIPS.*statically linked'
           ! grep -R -E '^[[:space:]]*(opkg|apk|apt)([[:space:]]|$)' install.sh rootfs
           test ! -e rootfs/tmp/tailscale.combined

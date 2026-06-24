@@ -27,6 +27,7 @@ O instalador recusa outro hardware, RAM insuficiente, ausência de TUN ou menos 
 - escala e offset por tag Modbus;
 - publicação MQTT das tags alteradas e keepalive do sistema;
 - interface LuCI para Tailscale, Modbus, MQTT, estado, logs, RAM e armazenamento;
+- publicação/subscrição MQTT de teste e escrita manual confirmada de coil Modbus pelo LuCI;
 - monitor de CPU/temperatura e governor somente quando suportado pelo kernel;
 - atualização manual controlada, diagnóstico, limpeza segura e desinstalação.
 
@@ -51,6 +52,8 @@ zlan-hybrid-status
 logread -e zlan-tailscale
 tail -f /tmp/zlan-tailscale.log
 ```
+
+Se o estado mostrar `NeedsLogin`, configure uma auth key em **Serviços > ZLAN Hybrid > Tailscale** ou abra a URL exibida por `zlan-hybrid-status`. O comando de login possui timeout de 30 segundos para não manter uma segunda instância pesada do executável bloqueada indefinidamente. Em instalações novas com LAN `/24`, o instalador detecta a rota pelo UCI em vez de assumir uma sub-rede fixa.
 
 No LuCI, acesse **Serviços > ZLAN Hybrid**.
 
@@ -101,6 +104,8 @@ São aceitos endereços absolutos (`40001`, `30001`, `10001`, `1`) ou offsets ba
 ```
 
 O daemon de telemetria só inicia quando MQTT ou ao menos uma seção Modbus está habilitada, economizando RAM no uso exclusivo do Tailscale.
+
+As páginas **Modbus** e **MQTT** mostram o estado do serviço, o estado de runtime e os últimos logs. A página MQTT permite publicar e aguardar uma mensagem de teste. A página Modbus permite escrever um coil real e confirmar o valor por leitura; use essa operação somente em uma saída cujo acionamento seja seguro.
 
 ## Atualização e remoção
 

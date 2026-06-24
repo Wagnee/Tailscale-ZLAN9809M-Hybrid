@@ -53,3 +53,43 @@ func TestLoadMQTTConfigUsesSafeIntervals(t *testing.T) {
 		t.Fatalf("unsafe defaults: %#v", config)
 	}
 }
+
+func TestMQTTBrokerURL(t *testing.T) {
+	config := MQTTConfig{Broker: "broker.example", Port: 1883}
+	if got := mqttBrokerURL(config); got != "tcp://broker.example:1883" {
+		t.Fatalf("mqttBrokerURL() = %q", got)
+	}
+	config.Broker = "ssl://broker.example:8883"
+	if got := mqttBrokerURL(config); got != config.Broker {
+		t.Fatalf("mqttBrokerURL() changed explicit scheme: %q", got)
+	}
+}
+
+func TestValidateMQTTTopic(t *testing.T) {
+	if err := validateMQTTTopic("factory/device/test", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateMQTTTopic("factory/+/test", false); err == nil {
+		t.Fatal("publish wildcard should be rejected")
+	}
+	if err := validateMQTTTopic("factory/+/test", true); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestLoadModbusDeviceIncludesDisabledDevice(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "modbus")
+	data := []byte("config device 'plc1'\n" +
+		" option enabled '0'\n option name 'PLC Teste'\n option ip '192.0.2.10'\n" +
+		" option port '1502'\n option slave_id '7'\n option timeout '30'\n")
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	device, err := loadModbusDevice(path, "plc1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if device.Address != "192.0.2.10:1502" || device.SlaveID != 7 || device.Timeout != 10*time.Second {
+		t.Fatalf("unexpected device: %#v", device)
+	}
+}

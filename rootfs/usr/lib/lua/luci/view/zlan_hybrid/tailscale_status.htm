@@ -1,0 +1,29 @@
+<%
+local sys = require "luci.sys"
+local fs = require "nixio.fs"
+local uci = require("luci.model.uci").cursor()
+local status = sys.exec("/etc/init.d/zlan-tailscale status 2>&1")
+local auth_url = fs.readfile("/tmp/zlan-tailscale-auth-url")
+local logs = sys.exec("tail -n 100 /tmp/zlan-tailscale.log 2>&1")
+local lan_ip = uci:get("network", "lan", "ipaddr") or "não detectado"
+local lan_mask = uci:get("network", "lan", "netmask") or "não detectada"
+local advertised_routes = uci:get("zlan_tailscale", "main", "routes") or ""
+%>
+
+<fieldset class="cbi-section">
+    <legend>Estado atual do Tailscale</legend>
+    <pre style="max-height:180px;overflow:auto"><%=pcdata(status)%></pre>
+    <% if auth_url then %>
+        <div class="alert-message warning">
+            Autenticação necessária: <a href="<%=pcdata(auth_url)%>" target="_blank" rel="noreferrer"><%=pcdata(auth_url)%></a>
+        </div>
+    <% end %>
+    <p>LAN configurada: <code><%=pcdata(lan_ip)%></code> / máscara <code><%=pcdata(lan_mask)%></code></p>
+    <p>Rotas anunciadas: <code><%=pcdata(advertised_routes ~= "" and advertised_routes or "nenhuma")%></code></p>
+    <p>Para operação automática, configure uma auth key abaixo e salve. O serviço será reiniciado.</p>
+</fieldset>
+
+<fieldset class="cbi-section">
+    <legend>Últimos logs do Tailscale</legend>
+    <pre style="max-height:360px;overflow:auto"><%=pcdata(logs)%></pre>
+</fieldset>

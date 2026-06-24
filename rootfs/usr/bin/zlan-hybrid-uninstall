@@ -19,7 +19,7 @@ rm -f /usr/lib/lua/luci/controller/zlan_hybrid.lua
 rm -f /usr/lib/lua/luci/model/cbi/zlan_tailscale.lua
 rm -f /usr/lib/lua/luci/model/cbi/zlan_modbus.lua
 rm -f /usr/lib/lua/luci/model/cbi/zlan_mqtt.lua
-rm -f /usr/lib/lua/luci/view/zlan_hybrid/overview.htm
+rm -rf /usr/lib/lua/luci/view/zlan_hybrid
 rm -f /etc/sysctl.d/99-zlan-hybrid.conf
 rm -rf /usr/share/zlan-hybrid
 

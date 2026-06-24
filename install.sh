@@ -14,6 +14,7 @@ ARCHIVE="$WORK/persistent.tar.gz"
 HASH_FILE="$WORK/persistent.tar.gz.sha256"
 PAYLOAD="$WORK/payload"
 UPDATE=0
+NEW_TAILSCALE_CONFIG=0
 
 [ "${1:-}" = "--update" ] && UPDATE=1
 
@@ -110,9 +111,26 @@ install_defaults() {
     for config in zlan_tailscale zlan_modbus zlan_mqtt; do
         if [ ! -f "/etc/config/$config" ]; then
             cp "/usr/share/zlan-hybrid/defaults/$config" "/etc/config/$config"
+            [ "$config" != "zlan_tailscale" ] || NEW_TAILSCALE_CONFIG=1
         fi
         chmod 0600 "/etc/config/$config"
     done
+}
+
+configure_detected_lan_route() {
+    [ "$NEW_TAILSCALE_CONFIG" = "1" ] || return 0
+    lan_ip="$(uci -q get network.lan.ipaddr 2>/dev/null)"
+    lan_mask="$(uci -q get network.lan.netmask 2>/dev/null)"
+    if [ "$lan_mask" = "255.255.255.0" ]; then
+        case "$lan_ip" in
+            *.*.*.*)
+                detected_route="${lan_ip%.*}.0/24"
+                uci set "zlan_tailscale.main.routes=$detected_route"
+                uci commit zlan_tailscale
+                echo "Rota LAN detectada: $detected_route"
+                ;;
+        esac
+    fi
 }
 
 configure_first_install() {
@@ -162,12 +180,13 @@ chmod 0644 /usr/lib/lua/luci/controller/zlan_hybrid.lua
 chmod 0644 /usr/lib/lua/luci/model/cbi/zlan_tailscale.lua
 chmod 0644 /usr/lib/lua/luci/model/cbi/zlan_modbus.lua
 chmod 0644 /usr/lib/lua/luci/model/cbi/zlan_mqtt.lua
-chmod 0644 /usr/lib/lua/luci/view/zlan_hybrid/overview.htm
 chmod 0755 /usr/lib/lua/luci/view/zlan_hybrid
+find /usr/lib/lua/luci/view/zlan_hybrid -type f -exec chmod 0644 {} \;
 find /usr/share/zlan-hybrid -type d -exec chmod 0755 {} \;
 find /usr/share/zlan-hybrid -type f -exec chmod 0644 {} \;
 
 install_defaults
+configure_detected_lan_route
 configure_first_install
 mkdir -p /etc/sysctl.d
 printf '%s\n' 'net.ipv4.ip_forward=1' > /etc/sysctl.d/99-zlan-hybrid.conf

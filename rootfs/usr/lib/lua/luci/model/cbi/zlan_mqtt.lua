@@ -1,5 +1,7 @@
 local sys = require "luci.sys"
 local m = Map("zlan_mqtt", translate("MQTT"), translate("Publicação das tags Modbus e keepalive do sistema."))
+local diagnostics = m:section(SimpleSection)
+diagnostics.template = "zlan_hybrid/mqtt_status"
 local s = m:section(NamedSection, "main", "mqtt", translate("Broker"))
 s.addremove = false
 

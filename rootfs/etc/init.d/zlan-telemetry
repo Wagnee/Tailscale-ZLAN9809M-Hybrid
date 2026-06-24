@@ -4,6 +4,8 @@
 # shellcheck disable=SC2034
 START=96
 STOP=11
+EXTRA_COMMANDS="status"
+EXTRA_HELP="        status          Mostra o estado da telemetria"
 
 DAEMON="/usr/bin/zlan-telemetryd"
 PIDFILE="/var/run/zlan-telemetry.pid"

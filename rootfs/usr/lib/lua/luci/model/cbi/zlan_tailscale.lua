@@ -1,6 +1,8 @@
 local sys = require "luci.sys"
 local m = Map("zlan_tailscale", translate("Tailscale dinâmico"),
     translate("O binário fica em /tmp e é baixado somente quando há internet. Estado e configuração permanecem na flash."))
+local diagnostics = m:section(SimpleSection)
+diagnostics.template = "zlan_hybrid/tailscale_status"
 local s = m:section(NamedSection, "main", "main", translate("Configuração"))
 s.addremove = false
 
@@ -25,6 +27,9 @@ o = s:option(Value, "binary_url", translate("URL do tailscale.combined"))
 o.rmempty = false
 o = s:option(Value, "binary_sha256", translate("SHA-256 esperado"))
 o.rmempty = false
+o = s:option(Value, "up_timeout", translate("Timeout do login (s)"))
+o.default = "30"
+o.datatype = "range(10,300)"
 
 function m.on_after_commit()
     sys.call("/etc/init.d/zlan-tailscale restart >/dev/null 2>&1 &")

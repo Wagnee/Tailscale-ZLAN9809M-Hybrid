@@ -1,5 +1,7 @@
 local sys = require "luci.sys"
 local m = Map("zlan_modbus", translate("Modbus TCP"), translate("Dispositivos e tags persistentes."))
+local diagnostics = m:section(SimpleSection)
+diagnostics.template = "zlan_hybrid/modbus_status"
 local s = m:section(TypedSection, "device", translate("Dispositivos"))
 s.addremove = true
 s.anonymous = false

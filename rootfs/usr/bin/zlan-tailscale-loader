@@ -7,7 +7,10 @@ DAEMON="/tmp/tailscaled"
 RUNTIME_DIR="/tmp/tailscale-runtime"
 SOCKET="$RUNTIME_DIR/tailscaled.sock"
 LOG="/tmp/zlan-tailscale.log"
+UP_OUTPUT="/tmp/zlan-tailscale-up.json"
+AUTH_URL_FILE="/tmp/zlan-tailscale-auth-url"
 TAILSCALED_PID=""
+TAILSCALE_UP_PID=""
 
 uci_get() {
     value="$(uci -q get "$CONFIG.$1" 2>/dev/null)"
@@ -112,7 +115,13 @@ load_config() {
     TS_PORT="$(uci_get port 41641)"
     TS_RETRY_DELAY="$(uci_get retry_delay 60)"
     TS_START_TIMEOUT="$(uci_get start_timeout 180)"
+    TS_UP_TIMEOUT="$(uci_get up_timeout 30)"
     TS_MINIMUM_AVAILABLE_KB="$(uci_get minimum_available_kb 30000)"
+
+    case "$TS_RETRY_DELAY" in ''|*[!0-9]*) TS_RETRY_DELAY=60 ;; esac
+    case "$TS_START_TIMEOUT" in ''|*[!0-9]*) TS_START_TIMEOUT=180 ;; esac
+    case "$TS_UP_TIMEOUT" in ''|*[!0-9]*) TS_UP_TIMEOUT=30 ;; esac
+    case "$TS_MINIMUM_AVAILABLE_KB" in ''|*[!0-9]*) TS_MINIMUM_AVAILABLE_KB=30000 ;; esac
 }
 
 start_tailscaled() {
@@ -150,24 +159,65 @@ start_tailscaled() {
 }
 
 tailscale_up() {
+    rm -f "$UP_OUTPUT" "$AUTH_URL_FILE"
     set -- "$CLI" --socket="$SOCKET" up \
         --hostname="$TS_HOSTNAME" \
         --accept-dns="$TS_ACCEPT_DNS" \
-        --accept-routes="$TS_ACCEPT_ROUTES"
+        --accept-routes="$TS_ACCEPT_ROUTES" \
+        --timeout="${TS_UP_TIMEOUT}s" \
+        --json
 
     [ -z "$TS_ROUTES" ] || set -- "$@" --advertise-routes="$TS_ROUTES"
     [ -z "$TS_AUTH_KEY" ] || set -- "$@" --auth-key="$TS_AUTH_KEY"
 
-    if [ -n "$TS_NETFILTER_MODE" ] && "$CLI" up --help 2>&1 | grep -q -e '--netfilter-mode'; then
-        set -- "$@" --netfilter-mode="$TS_NETFILTER_MODE"
+    [ -z "$TS_NETFILTER_MODE" ] || set -- "$@" --netfilter-mode="$TS_NETFILTER_MODE"
+
+    log "executando tailscale up com timeout de ${TS_UP_TIMEOUT}s"
+    "$@" > "$UP_OUTPUT" 2>&1 &
+    TAILSCALE_UP_PID="$!"
+    announced_url=""
+
+    while kill -0 "$TAILSCALE_UP_PID" 2>/dev/null; do
+        auth_url="$(sed -n 's/.*"AuthURL"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$UP_OUTPUT" 2>/dev/null | sed -n '1p')"
+        if [ -n "$auth_url" ] && [ "$auth_url" != "$announced_url" ]; then
+            announced_url="$auth_url"
+            printf '%s\n' "$auth_url" > "$AUTH_URL_FILE"
+            chmod 0600 "$AUTH_URL_FILE"
+            log "autenticacao necessaria: abra $auth_url"
+        fi
+
+        if ! kill -0 "$TAILSCALED_PID" 2>/dev/null; then
+            log "tailscaled encerrou durante o tailscale up"
+            kill "$TAILSCALE_UP_PID" 2>/dev/null || true
+            wait "$TAILSCALE_UP_PID" 2>/dev/null || true
+            TAILSCALE_UP_PID=""
+            [ ! -f "$UP_OUTPUT" ] || cat "$UP_OUTPUT" >> "$LOG"
+            return 1
+        fi
+        sleep 1
+    done
+
+    wait "$TAILSCALE_UP_PID"
+    up_result="$?"
+    TAILSCALE_UP_PID=""
+    [ ! -f "$UP_OUTPUT" ] || cat "$UP_OUTPUT" >> "$LOG"
+
+    if [ "$up_result" -eq 0 ]; then
+        rm -f "$AUTH_URL_FILE"
+        return 0
     fi
 
-    "$@" >> "$LOG" 2>&1
+    if [ -z "$TS_AUTH_KEY" ]; then
+        log "tailscale ainda precisa de login; use a URL acima ou configure uma auth key no LuCI"
+    else
+        log "tailscale up falhou usando a auth key configurada"
+    fi
+    return "$up_result"
 }
 
 stop_runtime() {
-    if [ -x "$CLI" ] && [ -S "$SOCKET" ]; then
-        "$CLI" --socket="$SOCKET" down >/dev/null 2>&1 || true
+    if [ -n "$TAILSCALE_UP_PID" ]; then
+        kill "$TAILSCALE_UP_PID" 2>/dev/null || true
     fi
 
     if [ -n "$TAILSCALED_PID" ]; then
@@ -209,21 +259,18 @@ while true; do
     if tailscale_up; then
         log "Tailscale configurado; estado persistente em /etc/tailscale"
     else
-        log "tailscale up falhou; o daemon continuará ativo para nova tentativa"
+        log "tailscale up nao concluiu; o daemon permanece ativo aguardando login ou nova configuracao"
     fi
 
-    retry_up=0
     while kill -0 "$TAILSCALED_PID" 2>/dev/null; do
         sleep 60
-        retry_up=$((retry_up + 1))
-        if [ "$retry_up" -ge 5 ]; then
-            retry_up=0
-            trim_log
-            "$CLI" --socket="$SOCKET" status >/dev/null 2>&1 || tailscale_up || true
-        fi
+        trim_log
     done
 
-    log "tailscaled encerrou; reiniciando em ${TS_RETRY_DELAY}s"
+    wait "$TAILSCALED_PID" 2>/dev/null
+    daemon_result="$?"
+    log "tailscaled encerrou com codigo $daemon_result; reiniciando em ${TS_RETRY_DELAY}s"
+    dmesg 2>/dev/null | grep -i -e 'out of memory' -e 'killed process' | tail -n 3 >> "$LOG" || true
     stop_runtime
     sleep "$TS_RETRY_DELAY"
 done

@@ -1,0 +1,50 @@
+<%
+local sys = require "luci.sys"
+local fs = require "nixio.fs"
+local uci = require("luci.model.uci").cursor()
+local service = sys.exec("/etc/init.d/zlan-telemetry status 2>&1")
+local runtime = fs.readfile("/tmp/zlan-telemetry/status.json") or "Estado ainda não gerado."
+local logs = sys.exec("tail -n 60 /tmp/zlan-telemetry.log 2>&1")
+local result = fs.readfile("/tmp/zlan-telemetry/mqtt-test.txt") or "Nenhum teste MQTT executado."
+local prefix = uci:get("zlan_mqtt", "main", "topic_prefix") or "zlan9809m"
+local test_topic = prefix .. "/test"
+%>
+
+<fieldset class="cbi-section">
+    <legend>Estado atual do serviço</legend>
+    <pre style="max-height:180px;overflow:auto"><%=pcdata(service)%></pre>
+    <pre style="max-height:220px;overflow:auto"><%=pcdata(runtime)%></pre>
+</fieldset>
+
+<fieldset class="cbi-section">
+    <legend>Teste de publicação MQTT</legend>
+    <p>Salve alterações pendentes antes do teste. Usa o broker, credenciais e QoS configurados abaixo; a mensagem nunca é publicada com retain.</p>
+    <div>
+        <input type="hidden" name="token" value="<%=token%>" />
+        <label class="cbi-value-title" for="mqtt-publish-topic">Tópico</label>
+        <input id="mqtt-publish-topic" class="cbi-input-text" type="text" name="publish_topic" value="<%=pcdata(test_topic)%>" maxlength="256" />
+        <label class="cbi-value-title" for="mqtt-publish-message">Mensagem</label>
+        <input id="mqtt-publish-message" class="cbi-input-text" type="text" name="publish_message" value="teste ZLAN9809M" maxlength="2048" />
+        <button class="cbi-button cbi-button-apply" type="submit" formmethod="post" formaction="<%=url('admin/services/zlan_hybrid/test_mqtt_publish')%>">Publicar teste</button>
+    </div>
+</fieldset>
+
+<fieldset class="cbi-section">
+    <legend>Teste de subscrição MQTT</legend>
+    <p>A página aguardará uma mensagem por até 15 segundos. Para testar, publique no tópico usando outro cliente ou outra aba.</p>
+    <div>
+        <input type="hidden" name="token" value="<%=token%>" />
+        <label class="cbi-value-title" for="mqtt-subscribe-topic">Tópico ou wildcard</label>
+        <input id="mqtt-subscribe-topic" class="cbi-input-text" type="text" name="subscribe_topic" value="<%=pcdata(test_topic)%>" maxlength="256" />
+        <label class="cbi-value-title" for="mqtt-subscribe-timeout">Timeout (s)</label>
+        <input id="mqtt-subscribe-timeout" class="cbi-input-text" type="number" name="subscribe_timeout" value="10" min="1" max="15" />
+        <button class="cbi-button cbi-button-apply" type="submit" formmethod="post" formaction="<%=url('admin/services/zlan_hybrid/test_mqtt_subscribe')%>">Aguardar mensagem</button>
+    </div>
+    <h4>Último resultado</h4>
+    <pre style="max-height:180px;overflow:auto"><%=pcdata(result)%></pre>
+</fieldset>
+
+<fieldset class="cbi-section">
+    <legend>Últimos logs da telemetria</legend>
+    <pre style="max-height:300px;overflow:auto"><%=pcdata(logs)%></pre>
+</fieldset>

@@ -104,6 +104,13 @@ var runtime = struct {
 
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
+	if handled, err := runCommand(os.Args[1:]); handled {
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "ERRO: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
 	devices, err := loadModbusConfig(modbusConfigPath)
 	if err != nil {
 		log.Fatalf("configuração Modbus inválida: %v", err)
@@ -387,11 +394,7 @@ func normalizeAddress(kind string, address int) (uint16, error) {
 }
 
 func runMQTT(ctx context.Context, config MQTTConfig) {
-	broker := config.Broker
-	if !strings.Contains(broker, "://") {
-		broker = fmt.Sprintf("tcp://%s:%d", broker, config.Port)
-	}
-	opts := mqtt.NewClientOptions().AddBroker(broker).SetClientID(config.ClientID)
+	opts := mqtt.NewClientOptions().AddBroker(mqttBrokerURL(config)).SetClientID(config.ClientID)
 	opts.SetKeepAlive(config.KeepAlive)
 	opts.SetAutoReconnect(true)
 	opts.SetConnectRetry(true)

@@ -4,11 +4,12 @@
 # shellcheck disable=SC2034
 START=99
 STOP=10
+EXTRA_COMMANDS="status"
+EXTRA_HELP="        status          Mostra o estado do ZLAN Tailscale"
 
 LOADER="/usr/bin/zlan-tailscale-loader"
 PIDFILE="/var/run/zlan-tailscale.pid"
 SOCKET="/tmp/tailscale-runtime/tailscaled.sock"
-CLI="/tmp/tailscale"
 
 is_running() {
     [ -f "$PIDFILE" ] || return 1
@@ -36,12 +37,9 @@ stop() {
         kill -9 "$pid" 2>/dev/null || true
     fi
 
-    if [ -x "$CLI" ] && [ -S "$SOCKET" ]; then
-        "$CLI" --socket="$SOCKET" down >/dev/null 2>&1 || true
-    fi
     killall tailscaled 2>/dev/null || true
     killall tailscale.combined 2>/dev/null || true
-    rm -f "$PIDFILE" "$SOCKET"
+    rm -f "$PIDFILE" "$SOCKET" /tmp/zlan-tailscale-auth-url
     echo "zlan-tailscale parado"
 }
 
@@ -58,9 +56,18 @@ status() {
         echo "loader: stopped"
     fi
 
-    if [ -x "$CLI" ] && [ -S "$SOCKET" ]; then
-        "$CLI" --socket="$SOCKET" status 2>&1
+    if [ -S "$SOCKET" ]; then
+        echo "socket: ready"
     else
-        echo "tailscale: aguardando internet/binário"
+        echo "socket: unavailable"
+    fi
+
+    if [ -r /tmp/zlan-tailscale-auth-url ]; then
+        echo "login: necessario"
+        echo "URL: $(cat /tmp/zlan-tailscale-auth-url)"
+    elif [ -S "$SOCKET" ]; then
+        echo "login: sem URL pendente (consulte os logs)"
+    else
+        echo "tailscale: aguardando internet/binario"
     fi
 }

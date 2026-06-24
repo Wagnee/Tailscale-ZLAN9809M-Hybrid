@@ -1,0 +1,53 @@
+<%
+local sys = require "luci.sys"
+local fs = require "nixio.fs"
+local uci = require("luci.model.uci").cursor()
+local service = sys.exec("/etc/init.d/zlan-telemetry status 2>&1")
+local state = fs.readfile("/tmp/zlan-telemetry/modbus-state.json") or "Estado Modbus ainda não gerado."
+local logs = sys.exec("tail -n 60 /tmp/zlan-telemetry.log 2>&1")
+local result = fs.readfile("/tmp/zlan-telemetry/modbus-test.txt") or "Nenhum teste Modbus executado."
+local devices = {}
+uci:foreach("zlan_modbus", "device", function(section)
+    devices[#devices + 1] = {
+        key = section[".name"],
+        label = section.name or section[".name"],
+        ip = section.ip or "sem IP"
+    }
+end)
+%>
+
+<fieldset class="cbi-section">
+    <legend>Estado atual do serviço</legend>
+    <pre style="max-height:180px;overflow:auto"><%=pcdata(service)%></pre>
+    <pre style="max-height:300px;overflow:auto"><%=pcdata(state)%></pre>
+</fieldset>
+
+<fieldset class="cbi-section">
+    <legend>Teste manual de coil</legend>
+    <p><strong>Atenção:</strong> salve alterações pendentes antes do teste. Esta operação escreve uma saída real no dispositivo Modbus e confirma o valor por leitura.</p>
+    <div>
+        <input type="hidden" name="token" value="<%=token%>" />
+        <label class="cbi-value-title" for="modbus-device">Dispositivo</label>
+        <select id="modbus-device" class="cbi-input-select" name="device">
+            <% for _, device in ipairs(devices) do %>
+                <option value="<%=pcdata(device.key)%>"><%=pcdata(device.label .. " (" .. device.ip .. ")")%></option>
+            <% end %>
+        </select>
+        <label class="cbi-value-title" for="modbus-address">Endereço do coil</label>
+        <input id="modbus-address" class="cbi-input-text" type="number" name="address" value="1" min="0" max="65535" />
+        <label class="cbi-value-title" for="modbus-value">Valor</label>
+        <select id="modbus-value" class="cbi-input-select" name="value">
+            <option value="1">Ligado (1)</option>
+            <option value="0">Desligado (0)</option>
+        </select>
+        <button class="cbi-button cbi-button-apply" type="submit" formmethod="post" formaction="<%=url('admin/services/zlan_hybrid/test_modbus')%>">Escrever e confirmar coil</button>
+    </div>
+    <p>O endereço 1 corresponde ao primeiro coil; o offset 0 também é aceito.</p>
+    <h4>Último resultado</h4>
+    <pre style="max-height:180px;overflow:auto"><%=pcdata(result)%></pre>
+</fieldset>
+
+<fieldset class="cbi-section">
+    <legend>Últimos logs da telemetria</legend>
+    <pre style="max-height:300px;overflow:auto"><%=pcdata(logs)%></pre>
+</fieldset>
